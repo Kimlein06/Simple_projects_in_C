@@ -84,11 +84,75 @@ void on_save_clicked(GtkWidget *widget, gpointer data) {
     gtk_widget_destroy(dialog);
 }
 
+void on_open_clicked(GtkWidget *widget, gpointer data) {
+    GtkWidget *dialog;
+    GtkFileChooser *chooser;
+    GtkFileChooserAction action = GTK_FILE_CHOOSER_ACTION_OPEN;
+    gint res;
+
+    dialog = gtk_file_chooser_dialog_new("Open File",
+                                         GTK_WINDOW(data),
+                                         action,
+                                         "_Cancel", GTK_RESPONSE_CANCEL,
+                                         "_Open", GTK_RESPONSE_ACCEPT,
+                                         NULL);
+
+    chooser = GTK_FILE_CHOOSER(dialog);
+
+    res = gtk_dialog_run(GTK_DIALOG(dialog));
+    if (res == GTK_RESPONSE_ACCEPT) {
+        char *filename = gtk_file_chooser_get_filename(chooser);
+
+        FILE *f = fopen(filename, "r");
+        if (f) {
+            fseek(f, 0, SEEK_END);
+            long length = ftell(f);
+            fseek(f, 0, SEEK_SET);
+            char *contents = malloc(length + 1);
+            fread(contents, 1, length, f);
+            contents[length] = '\0';
+
+            gtk_text_buffer_set_text(buffer, contents, -1);
+            free(contents);
+            fclose(f);
+        }
+
+        g_free(filename);
+    }
+
+    gtk_widget_destroy(dialog);
+}
+
+
 void on_text_changed(GtkTextBuffer *buf, gpointer user_data) {
     save_current_text_to_stack(&undo_stack);
     g_list_free_full(redo_stack, g_free);
     redo_stack = NULL;
 }
+
+void update_word_char_count(GtkTextBuffer *buf, GtkLabel *label) {
+    GtkTextIter start, end;
+    gtk_text_buffer_get_start_iter(buf, &start);
+    gtk_text_buffer_get_end_iter(buf, &end);
+    gchar *text = gtk_text_buffer_get_text(buf, &start, &end, FALSE);
+
+    int word_count = 0;
+    int char_count = strlen(text);
+
+    // Word count logic
+    char *p = strtok(text, " \t\n");
+    while (p != NULL) {
+        word_count++;
+        p = strtok(NULL, " \t\n");
+    }
+
+    gchar label_text[100];
+    sprintf(label_text, "Words: %d | Characters: %d", word_count, char_count);
+    gtk_label_set_text(label, label_text);
+
+    g_free(text);
+}
+
 
 int main(int argc, char *argv[]) {
     gtk_init(&argc, &argv);
@@ -103,13 +167,17 @@ int main(int argc, char *argv[]) {
     GtkWidget *redo_btn = gtk_button_new_with_label("Redo");
     GtkWidget *commit_btn = gtk_button_new_with_label("Commit");
     GtkWidget *save_btn = gtk_button_new_with_label("Save to file");
+    GtkWidget *open_btn = gtk_button_new_with_label("Open File");
+    GtkWidget *status_label = gtk_label_new("Words: 0 | Characters: 0");
     GtkWidget *textview = gtk_text_view_new();
 
     gtk_box_pack_start(GTK_BOX(toolbar), undo_btn, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(toolbar), redo_btn, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(toolbar), commit_btn, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(toolbar), save_btn, FALSE, FALSE, 5);
+    gtk_box_pack_start(GTK_BOX(toolbar), open_btn, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(vbox), toolbar, FALSE, FALSE, 0);
+    gtk_box_pack_start(GTK_BOX(vbox), status_label, FALSE, FALSE, 5);
     gtk_box_pack_start(GTK_BOX(vbox), textview, TRUE, TRUE, 0);
     gtk_container_add(GTK_CONTAINER(window), vbox);
 
@@ -118,7 +186,9 @@ int main(int argc, char *argv[]) {
     g_signal_connect(undo_btn, "clicked", G_CALLBACK(on_undo_clicked), NULL);
     g_signal_connect(redo_btn, "clicked", G_CALLBACK(on_redo_clicked), NULL);
     g_signal_connect(commit_btn, "clicked", G_CALLBACK(on_commit_clicked), NULL);
+    g_signal_connect(buffer, "changed", G_CALLBACK(update_word_char_count), status_label);
     g_signal_connect(save_btn, "clicked", G_CALLBACK(on_save_clicked), NULL);
+    g_signal_connect(open_btn, "clicked", G_CALLBACK(on_open_clicked), window);
     g_signal_connect(window, "destroy", G_CALLBACK(gtk_main_quit), NULL);
 
     gtk_widget_show_all(window);
